@@ -1,5 +1,6 @@
 import cv2
 from ultralytics import YOLO
+import csv
 
 # Keypoint indices for COCO dataset
 KEYPOINT_DICT = {
@@ -57,38 +58,57 @@ def main():
 
     # Define the codec and create VideoWriter object
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter('output_keypoints.mp4', fourcc, fps, (width, height))
+    out = cv2.VideoWriter('animation.mp4', fourcc, fps, (width, height))
 
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
+    # Open CSV file for writing keypoints
+    with open('keypoints.csv', 'w', newline='') as csvfile:
+        csv_writer = csv.writer(csvfile)
+        # Write header
+        header = ['frame_id', 'person_id']
+        for keypoint_name in KEYPOINT_DICT.keys():
+            header.extend([f'{keypoint_name}_x', f'{keypoint_name}_y'])
+        csv_writer.writerow(header)
 
-        # Run pose detection
-        results = model(frame, save=False)
+        frame_id = 0
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-        # Draw keypoints and limbs
-        for result in results:
-            for person in result.keypoints:
-                keypoints = person.xy[0]
-                for limb in LIMBS:
-                    start_point_name = limb[0]
-                    end_point_name = limb[1]
+            # Run pose detection
+            results = model(frame, save=False)
 
-                    start_point_idx = KEYPOINT_DICT[start_point_name]
-                    end_point_idx = KEYPOINT_DICT[end_point_name]
+            # Draw keypoints and limbs
+            for result in results:
+                for person_id, person in enumerate(result.keypoints):
+                    keypoints = person.xy[0]
+                    row = [frame_id, person_id]
+                    for i in range(len(KEYPOINT_DICT)):
+                        if i < len(keypoints):
+                            row.extend([keypoints[i][0].item(), keypoints[i][1].item()])
+                        else:
+                            row.extend([0, 0])
+                    csv_writer.writerow(row)
 
-                    if len(keypoints) > start_point_idx and len(keypoints) > end_point_idx:
-                        x1, y1 = keypoints[start_point_idx]
-                        x2, y2 = keypoints[end_point_idx]
+                    for limb in LIMBS:
+                        start_point_name = limb[0]
+                        end_point_name = limb[1]
 
-                        if x1 > 0 and y1 > 0 and x2 > 0 and y2 > 0:
-                            cv2.line(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
-                            cv2.circle(frame, (int(x1), int(y1)), 5, (0, 0, 255), -1)
-                            cv2.circle(frame, (int(x2), int(y2)), 5, (0, 0, 255), -1)
+                        start_point_idx = KEYPOINT_DICT[start_point_name]
+                        end_point_idx = KEYPOINT_DICT[end_point_name]
 
-        # Write the frame to the output video
-        out.write(frame)
+                        if len(keypoints) > start_point_idx and len(keypoints) > end_point_idx:
+                            x1, y1 = keypoints[start_point_idx]
+                            x2, y2 = keypoints[end_point_idx]
+
+                            if x1 > 0 and y1 > 0 and x2 > 0 and y2 > 0:
+                                cv2.line(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
+                                cv2.circle(frame, (int(x1), int(y1)), 5, (0, 0, 255), -1)
+                                cv2.circle(frame, (int(x2), int(y2)), 5, (0, 0, 255), -1)
+
+            # Write the frame to the output video
+            out.write(frame)
+            frame_id += 1
 
     # Release everything when job is finished
     cap.release()
